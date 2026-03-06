@@ -1,0 +1,2 @@
+rank,rows_start,rows_end,rows_local,scatter_s,gray_s,blur_s,sobel_s,threshold_s,gather_s,total_s
+1,942,1883,941,0.00970293,0.0456351,0.734806,0.323574,0.0442593,0.138403,1.45757
