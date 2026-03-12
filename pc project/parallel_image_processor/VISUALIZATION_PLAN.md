@@ -33,7 +33,7 @@ Build a **single-page web app** (e.g. `visualization.html` + optional `visualiza
    - **Decomposition / “who got which rows”**
      - Show the final image (or a placeholder if no image) with **horizontal bands** and labels: e.g. “Rank 0: rows 0–942”, “Rank 1: rows 942–1883”, etc., using `rows_start` and `rows_end` from the CSVs. This makes “the part that was sent to that processor” visible at a glance.
    - **Per-stage timings (benchmarks)**
-     - For each rank, show a **stacked bar** or **timeline** of the 7 stages (scatter, gray, blur, sobel, threshold, gather). Optionally show **total_s** per rank. This shows parallelism (all ranks do the same stages) and load balance (e.g. rank 0’s scatter is heavier).
+     - For each rank, show  a **stacked bar** or **timeline** of the 7 stages (scatter, gray, blur, sobel, threshold, gather). Optionally show **total_s** per rank. This shows parallelism (all ranks do the same stages) and load balance (e.g. rank 0’s scatter is heavier).
    - **Summary metrics**
      - Table or cards: e.g. max time per stage across ranks, total time, number of ranks, image size. All from the existing CSV columns.
 

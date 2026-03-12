@@ -5,7 +5,7 @@
  */
 
 (function () {
-  'use strict';
+  'use strict' ;
 
   const STAGE_KEYS = ['scatter_s', 'gray_s', 'blur_s', 'sobel_s', 'threshold_s', 'gather_s'];
   const STAGE_LABELS = ['Scatter', 'Grayscale', 'Blur', 'Sobel', 'Threshold', 'Gather'];
