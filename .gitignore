@@ -1,0 +1,5 @@
+images_original/
+images_ppm/
+*.ppm
+*.jpg
+*.png
