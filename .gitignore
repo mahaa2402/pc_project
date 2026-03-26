@@ -1,5 +1,19 @@
+# Images
+*.ppm
+*.png
+*.jpg
+*.jpeg
+
 images_original/
 images_ppm/
-*.ppm
-*.jpg
-*.png
+intermediate_res/
+
+# Build
+build/
+bin/
+*.out
+*.o
+
+# Python cache
+__pycache__/
+*.pyc
