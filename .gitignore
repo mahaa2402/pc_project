@@ -1,0 +1,24 @@
+# Python
+.venv/
+**/.venv/
+
+# Large / generated image assets (version_2)
+version_2/images_original/
+version_2/images_ppm/
+version_2/intermediate_res/
+
+# One-off parallel run output folder(s) under processor (stem-named)
+version_2/parallel_image_processor/Screenshot_*/
+
+# Optional: same folder names if present at repo root
+images_original/
+images_ppm/
+intermediate_res/
+
+# Build / bytecode
+**/__pycache__/
+*.pyc
+version_2/parallel_image_processor/parallel_ppm
+
+# OS / editor
+.DS_Store

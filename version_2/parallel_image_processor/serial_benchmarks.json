@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "description": "End-to-end serial pipeline timings from serial/serial_image_processor (metrics.csv total row, includes load + all stages + saves).",
+  "runs": [
+    {
+      "label": "Jack McCracken (5Nc…)",
+      "id": "jack-mccracken-5NcG8CjL7Sc-unsplash",
+      "width": 5798,
+      "height": 3765,
+      "pixels": 21829470,
+      "total_ms": 12790.14
+    },
+    {
+      "label": "ISS Earth (orig)",
+      "id": "iss074e0149548_orig",
+      "width": 8256,
+      "height": 5504,
+      "pixels": 45441024,
+      "total_ms": 26792.553
+    },
+    {
+      "label": "Alex Shuper (zoi…)",
+      "id": "alex-shuper-zoiROwz_2IU-unsplash",
+      "width": 6336,
+      "height": 9504,
+      "pixels": 60217344,
+      "total_ms": 35775.707
+    },
+    {
+      "label": "Jack McCracken (oXc…)",
+      "id": "jack-mccracken-oXcciLmSgQU-unsplash",
+      "width": 6000,
+      "height": 4000,
+      "pixels": 24000000,
+      "total_ms": 14111.576
+    }
+  ]
+}

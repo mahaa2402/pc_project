@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" >
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parallel Image Processor — Visualization</title>
+  <link rel="stylesheet" href="visualization.css">
+</head>
+<body>
+  <header>
+    <h1>Parallelism Visualization</h1>
+    <p class="subtitle">Per-rank pipeline, timings, and a <strong>serial vs parallel</strong> comparison — why preprocessing large images in parallel matters before LLM workflows.</p>
+  </header>
+
+  <section class="data-source">
+    <h2>Load run data</h2>
+    <div class="source-options">
+      <div class="option url-param">
+        <label for="stem-input">Stem folder (when served from parent):</label>
+        <input type="text" id="stem-input" placeholder="e.g. jack-mccracken-5NcG8CjL7Sc-unsplash" />
+        <button type="button" id="load-from-stem">Load</button>
+        <p class="hint">Use <code>?stem=jack-mccracken-5NcG8CjL7Sc-unsplash</code> in the URL, or run server from <code>parallel_image_processor/</code> and open this page.</p>
+      </div>
+      <div class="option folder-picker">
+        <button type="button" id="pick-folder">Select run folder…</button>
+        <p class="hint">Pick the run folder that contains <code>metrics_rank*.csv</code> and <code>threshold_parallel.ppm</code> (Chrome/Edge).</p>
+      </div>
+      <div class="option upload-image">
+        <label for="image-file-input">Upload image to server (<code>images_original/</code>):</label>
+        <input type="file" id="image-file-input" class="file-input-hidden" accept="image/*,.ppm,.pgm,.pbm" />
+        <button type="button" id="choose-image-btn">Choose file…</button>
+        <span id="image-file-label" class="file-label">No file selected</span>
+        <button type="button" id="upload-image-btn">Upload</button>
+        <p class="hint">POST <code>/upload</code> saves to <code>images_original/</code>, converts to PPM in <code>images_ppm/</code>, runs <code>mpirun ./parallel_ppm</code>, then loads this page for that run. Requires OpenCV in the server venv and a built <code>parallel_ppm</code> binary.</p>
+      </div>
+    </div>
+    <div id="upload-status" class="status upload-status-line" aria-live="polite"></div>
+    <div id="load-status" class="status" aria-live="polite"></div>
+  </section>
+
+  <main id="main-content" class="hidden">
+    <section class="intermediate-pipeline" id="intermediate-section">
+      <h2>Intermediate results (per rank)</h2>
+      <p class="caption">Strips from <code>&lt;stem&gt;/intermediate/</code> for one rank at a time. Click a thumbnail for full size. Other sections below update when you load a run, without reloading the page.</p>
+      <div class="pipeline-controls">
+        <button type="button" id="rank-prev" aria-label="Previous rank">◀ Prev rank</button>
+        <button type="button" id="rank-next" aria-label="Next rank">Next rank ▶</button>
+        <span id="rank-index-label" class="pipeline-stage-label"></span>
+      </div>
+      <div id="intermediate-grid" class="intermediate-grid intermediate-grid-by-stage"></div>
+    </section>
+
+    <section class="decomposition">
+      <h2>Decomposition — who got which rows</h2>
+      <div class="image-wrapper">
+        <canvas id="image-canvas"></canvas>
+        <canvas id="bands-canvas" aria-hidden="true"></canvas>
+        <div id="band-labels" class="band-labels" aria-hidden="true"></div>
+      </div>
+      <p class="caption">Final image with horizontal bands by rank (row ranges from metrics).</p>
+    </section>
+
+    <section class="timings">
+      <h2>Per-stage timings (stacked by rank)</h2>
+      <div id="timing-legend" class="timing-legend" aria-hidden="true"></div>
+      <div id="timing-bars" class="timing-bars"></div>
+      <p class="caption">Bar segments use a <strong>scaled width</strong> (time<sup>0.4</sup>) so fast stages like scatter (~0.001s) stay visible beside blur; the <strong>numbers under each bar are exact</strong> seconds.</p>
+    </section>
+
+    <section class="summary">
+      <h2>Summary metrics</h2>
+      <div id="summary-table-wrapper">
+        <table id="summary-table">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody id="summary-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="serial-compare hidden" id="serial-compare-section">
+      <h2>Serial vs parallel — impact for large images</h2>
+      <p class="caption serial-compare-lead">We compare this <strong>parallel MPI run</strong> (wall time = slowest rank) to <strong>estimated serial time</strong> from four pre-recorded runs of the serial pipeline on similar workloads (same algorithm family: load, grayscale, Gaussian blur, Sobel, threshold, saves). The estimate is a linear fit: <code>time ≈ a × pixels + b</code> on those benchmarks — useful for reasoning about throughput before sending pixels to an LLM.</p>
+      <div id="serial-compare-narrative" class="serial-compare-narrative" aria-live="polite"></div>
+      <div class="serial-compare-charts">
+        <figure class="compare-chart-figure">
+          <figcaption>Wall time — serial (estimated) vs this parallel run</figcaption>
+          <canvas id="chart-compare-bars" width="640" height="200" aria-label="Bar chart comparing estimated serial and parallel wall time"></canvas>
+        </figure>
+        <figure class="compare-chart-figure">
+          <figcaption>Benchmarks + fit — megapixels vs time (reference runs and your image)</figcaption>
+          <canvas id="chart-compare-scatter" width="640" height="320" aria-label="Scatter plot of serial benchmark times and linear fit"></canvas>
+        </figure>
+      </div>
+      <h3 class="serial-subheading">Reference serial runs (ground truth for the fit)</h3>
+      <div id="serial-benchmark-table-wrap" class="serial-benchmark-table-wrap"></div>
+      <p class="caption serial-compare-footnote">Serial data lives under <code>serial/serial_image_processor/&lt;stem&gt;/metrics.csv</code>. Parallel time uses <code>max(total_s)</code> across ranks for this run. Different CPUs change absolute seconds; the <strong>ratio</strong> and trend still illustrate why parallel preprocessing scales better for multi-megapixel frames.</p>
+    </section>
+  </main>
+
+  <div id="ppm-lightbox" class="ppm-lightbox hidden" role="dialog" aria-modal="true" aria-labelledby="ppm-lightbox-caption">
+    <div class="ppm-lightbox-backdrop" id="ppm-lightbox-backdrop"></div>
+    <div class="ppm-lightbox-panel">
+      <button type="button" id="ppm-lightbox-close" class="ppm-lightbox-close" aria-label="Close">×</button>
+      <canvas id="ppm-lightbox-canvas"></canvas>
+      <p id="ppm-lightbox-caption" class="ppm-lightbox-caption"></p>
+    </div>
+  </div>
+
+  <script src="visualization.js"></script>
+</body>
+</html>
