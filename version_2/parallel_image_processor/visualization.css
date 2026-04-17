@@ -161,6 +161,84 @@ h2 {
   margin-bottom: 0;
 }
 
+.batch-results {
+  margin-top: 0.75rem;
+}
+
+.batch-results-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+}
+
+.batch-results-head {
+  font-size: 0.9rem;
+  color: var(--text);
+  margin-bottom: 0.6rem;
+}
+
+.batch-results-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.batch-results-item {
+  margin: 0.35rem 0;
+}
+
+.batch-name {
+  color: var(--text);
+  font-weight: 500;
+  margin-right: 0.55rem;
+}
+
+.batch-pill {
+  display: inline-block;
+  padding: 0.08rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-right: 0.55rem;
+}
+
+.batch-pill.ok {
+  background: rgba(158, 206, 106, 0.18);
+  color: #9ece6a;
+  border: 1px solid rgba(158, 206, 106, 0.35);
+}
+
+.batch-pill.bad {
+  background: rgba(247, 118, 142, 0.18);
+  color: #f7768e;
+  border: 1px solid rgba(247, 118, 142, 0.35);
+}
+
+.batch-view-btn {
+  padding: 0.3rem 0.65rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.batch-view-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.batch-error {
+  margin-top: 0.2rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  max-width: 110ch;
+}
+
 .status {
   margin-top: 1rem;
   font-size: 0.9rem;

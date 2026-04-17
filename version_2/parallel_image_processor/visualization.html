@@ -26,15 +26,18 @@
         <p class="hint">Pick the run folder that contains <code>metrics_rank*.csv</code> and <code>threshold_parallel.ppm</code> (Chrome/Edge).</p>
       </div>
       <div class="option upload-image">
-        <label for="image-file-input">Upload image to server (<code>images_original/</code>):</label>
-        <input type="file" id="image-file-input" class="file-input-hidden" accept="image/*,.ppm,.pgm,.pbm" />
-        <button type="button" id="choose-image-btn">Choose file…</button>
-        <span id="image-file-label" class="file-label">No file selected</span>
-        <button type="button" id="upload-image-btn">Upload</button>
-        <p class="hint">POST <code>/upload</code> saves to <code>images_original/</code>, converts to PPM in <code>images_ppm/</code>, runs <code>mpirun ./parallel_ppm</code>, then loads this page for that run. Requires OpenCV in the server venv and a built <code>parallel_ppm</code> binary.</p>
+        <label for="image-file-input">Upload image(s) to server (<code>images_original/</code>):</label>
+        <input type="file" id="image-file-input" class="file-input-hidden" accept="image/*,.ppm,.pgm,.pbm" multiple />
+        <input type="file" id="image-folder-input" class="file-input-hidden" accept="image/*,.ppm,.pgm,.pbm" webkitdirectory multiple />
+        <button type="button" id="choose-image-btn">Choose files…</button>
+        <button type="button" id="choose-folder-btn">Choose folder…</button>
+        <span id="image-file-label" class="file-label">No files selected</span>
+        <button type="button" id="upload-image-btn">Upload &amp; run</button>
+        <p class="hint">Single image uses <code>/upload</code>. Multiple images / folders use <code>/upload_batch</code>. Each file is saved to <code>images_original/</code>, converted to PPM in <code>images_ppm/</code>, and processed via <code>mpirun ./parallel_ppm</code>. Results show below; click “View” to load a run.</p>
       </div>
     </div>
     <div id="upload-status" class="status upload-status-line" aria-live="polite"></div>
+    <div id="batch-results" class="batch-results" aria-live="polite"></div>
     <div id="load-status" class="status" aria-live="polite"></div>
   </section>
 

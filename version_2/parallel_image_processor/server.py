@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Serve visualization static files and POST /upload -> pipeline (PPM + MPI)."""
+"""Serve visualization static files and POST /upload(/_batch) -> pipeline (PPM + MPI)."""
 from __future__ import annotations
 
 import json
 import os
 import posixpath
 import re
+import threading
+import time
+import uuid
 from http import HTTPStatus
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -19,12 +22,37 @@ def _safe_filename(name: str) -> str:
     return base or "upload.bin"
 
 
+_BATCH_JOBS_LOCK = threading.Lock()
+_BATCH_JOBS: dict[str, dict] = {}
+
+
+def _job_now_ms() -> int:
+    return int(time.time() * 1000)
+
+
 class Handler(SimpleHTTPRequestHandler):
+    def do_GET(self) -> None:
+        path = self.path.split("?", 1)[0].rstrip("/")
+        if path.endswith("/batch_status"):
+            job_id = self._get_query_param("job")
+            if not job_id:
+                self._send_json({"ok": False, "error": "Missing ?job=<id>"}, status=HTTPStatus.BAD_REQUEST)
+                return
+            with _BATCH_JOBS_LOCK:
+                job = _BATCH_JOBS.get(job_id)
+            if not job:
+                self._send_json({"ok": False, "error": "Unknown job id"}, status=HTTPStatus.NOT_FOUND)
+                return
+            self._send_json({"ok": True, "job": job})
+            return
+        super().do_GET()
+
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0].rstrip("/")
-        if not path.endswith("/upload"):
+        if not (path.endswith("/upload") or path.endswith("/upload_batch")):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
+        is_batch = path.endswith("/upload_batch")
 
         ctype = self.headers.get("Content-Type", "")
         m = re.match(r"multipart/form-data;\s*boundary=(.+)", ctype)
@@ -42,12 +70,57 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         body = self.rfile.read(length)
-        file_part = self._extract_file_part(body, boundary.encode("utf-8"))
-        if not file_part:
-            self._send_json({"error": "No file field named 'image' found"}, status=HTTPStatus.BAD_REQUEST)
+        file_parts = self._extract_file_parts(body, boundary.encode("utf-8"))
+        if not file_parts:
+            self._send_json(
+                {"error": "No file field found (expected multipart with name='image')"},
+                status=HTTPStatus.BAD_REQUEST,
+            )
             return
 
-        filename, file_bytes = file_part
+        if not is_batch:
+            filename, file_bytes = file_parts[0]
+            payload, status = self._process_one(filename, file_bytes)
+            self._send_json(payload, status=status)
+            return
+
+        # Async job: return immediately, poll /batch_status?job=<id>
+        job_id = uuid.uuid4().hex
+        job = {
+            "id": job_id,
+            "created_ms": _job_now_ms(),
+            "status": "running",
+            "count_total": len(file_parts),
+            "count_done": 0,
+            "ok_all": True,
+            "results": [],
+        }
+        with _BATCH_JOBS_LOCK:
+            _BATCH_JOBS[job_id] = job
+
+        def worker(parts: list[tuple[str, bytes]]) -> None:
+            for filename, file_bytes in parts:
+                item, _status = self._process_one(filename, file_bytes)
+                with _BATCH_JOBS_LOCK:
+                    j = _BATCH_JOBS.get(job_id)
+                    if not j:
+                        return
+                    if not item.get("ok"):
+                        j["ok_all"] = False
+                    j["results"].append(item)
+                    j["count_done"] = len(j["results"])
+                    j["updated_ms"] = _job_now_ms()
+            with _BATCH_JOBS_LOCK:
+                j = _BATCH_JOBS.get(job_id)
+                if j:
+                    j["status"] = "done"
+                    j["updated_ms"] = _job_now_ms()
+
+        t = threading.Thread(target=worker, args=(file_parts,), daemon=True)
+        t.start()
+        self._send_json({"ok": True, "job_id": job_id, "count": len(file_parts)})
+
+    def _process_one(self, filename: str, file_bytes: bytes) -> tuple[dict, HTTPStatus]:
         safe = _safe_filename(filename)
 
         here = Path(__file__).resolve().parent
@@ -70,6 +143,7 @@ class Handler(SimpleHTTPRequestHandler):
         payload: dict = {
             "ok": True,
             "saved_as": rel_saved_as,
+            "filename": safe,
             "stem": stem,
             "ppm_saved_as": ppm_rel_web,
             "pipeline_ok": False,
@@ -80,21 +154,21 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:
             payload["ok"] = False
             payload["error"] = "PPM conversion failed: " + str(e)
-            self._send_json(payload, status=HTTPStatus.INTERNAL_SERVER_ERROR)
-            return
+            return payload, HTTPStatus.OK
 
         ok_mpi, mpi_msg = run_parallel_ppm(here, ppm_rel_mpi)
         payload["pipeline_ok"] = ok_mpi
         if not ok_mpi:
+            payload["ok"] = False
             payload["pipeline_error"] = mpi_msg
-            self._send_json(payload, status=HTTPStatus.OK)
-            return
+            return payload, HTTPStatus.OK
 
-        self._send_json(payload)
+        return payload, HTTPStatus.OK
 
-    def _extract_file_part(self, body: bytes, boundary: bytes):
+    def _extract_file_parts(self, body: bytes, boundary: bytes) -> list[tuple[str, bytes]]:
         delim = b"--" + boundary
         parts = body.split(delim)
+        out: list[tuple[str, bytes]] = []
         for part in parts:
             part = part.strip(b"\r\n")
             if not part or part == b"--":
@@ -112,13 +186,24 @@ class Handler(SimpleHTTPRequestHandler):
                 if h.lower().startswith("content-disposition:"):
                     cd = h
                     break
+            # We accept repeated name="image" parts.
             if 'name="image"' not in cd:
                 continue
 
             m = re.search(r'filename="([^"]*)"', cd)
             filename = m.group(1) if m else "upload.bin"
-            return filename, data
-        return None
+            out.append((filename, data))
+        return out
+
+    def _get_query_param(self, key: str) -> str:
+        try:
+            from urllib.parse import parse_qs, urlsplit
+
+            qs = parse_qs(urlsplit(self.path).query)
+            v = qs.get(key, [""])[0]
+            return str(v or "")
+        except Exception:
+            return ""
 
     def _send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
         data = json.dumps(payload).encode("utf-8")

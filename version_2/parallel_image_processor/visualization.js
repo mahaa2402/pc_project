@@ -71,6 +71,14 @@
     return getBaseUrl() + 'upload';
   }
 
+  function getUploadBatchUrl() {
+    return getBaseUrl() + 'upload_batch';
+  }
+
+  function getBatchStatusUrl(jobId) {
+    return getBaseUrl() + 'batch_status?job=' + encodeURIComponent(jobId);
+  }
+
   async function uploadImageFile(file) {
     setUploadStatus('Uploading, converting to PPM, running MPI pipeline…');
     const fd = new FormData();
@@ -111,6 +119,145 @@
       msg += '. Pipeline did not finish.';
     }
     setUploadStatus(msg, true);
+  }
+
+  function clearBatchResults() {
+    const el = $('batch-results');
+    if (el) el.innerHTML = '';
+  }
+
+  function renderBatchResults(results) {
+    const wrap = $('batch-results');
+    if (!wrap) return;
+    if (!results || !results.length) {
+      wrap.innerHTML = '';
+      return;
+    }
+    const okCount = results.filter(r => r && r.ok && r.pipeline_ok).length;
+    const badCount = results.length - okCount;
+    let html = '<div class="batch-results-box">';
+    html += '<div class="batch-results-head"><strong>Batch results</strong> — ' + okCount + ' ok, ' + badCount + ' failed</div>';
+    html += '<ul class="batch-results-list">';
+    for (const r of results) {
+      const name = (r && (r.filename || r.saved_as || 'file')) || 'file';
+      const stem = r && r.stem ? String(r.stem) : '';
+      const ok = !!(r && r.ok && r.pipeline_ok);
+      const status = ok ? '<span class="batch-pill ok">OK</span>' : '<span class="batch-pill bad">FAILED</span>';
+      const err = !ok ? (r.error || r.pipeline_error || 'Unknown error') : '';
+      html += '<li class="batch-results-item">';
+      html += '<span class="batch-name" title="' + name.replace(/"/g, '&quot;') + '">' + name + '</span>';
+      html += status;
+      if (stem) {
+        html += '<button type="button" class="batch-view-btn" data-stem="' + stem.replace(/"/g, '&quot;') + '">View</button>';
+      }
+      if (err) {
+        html += '<div class="batch-error">' + String(err).replace(/</g, '&lt;') + '</div>';
+      }
+      html += '</li>';
+    }
+    html += '</ul></div>';
+    wrap.innerHTML = html;
+    wrap.querySelectorAll('.batch-view-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const s = e.currentTarget && e.currentTarget.getAttribute('data-stem');
+        if (s) {
+          const stemInput = $('stem-input');
+          if (stemInput) stemInput.value = s;
+          await loadFromStem(s);
+        }
+      });
+    });
+  }
+
+  async function uploadImageFiles(files) {
+    const list = Array.from(files || []).filter(Boolean);
+    if (!list.length) return;
+    clearBatchResults();
+    setUploadStatus('Uploading ' + list.length + ' file(s), converting to PPM, running MPI pipeline…');
+    const fd = new FormData();
+    list.forEach(f => fd.append('image', f, f.name));
+    let res;
+    try {
+      res = await fetch(getUploadBatchUrl(), { method: 'POST', body: fd });
+    } catch (e) {
+      setUploadStatus('Network error: ' + e.message, true);
+      return;
+    }
+    let data;
+    try {
+      data = await res.json();
+    } catch (_) {
+      setUploadStatus('Upload failed (' + res.status + ').', true);
+      return;
+    }
+    if (!res.ok || !data) {
+      setUploadStatus((data && data.error) || ('Upload failed (' + res.status + ').'), true);
+      return;
+    }
+    if (data.error) {
+      setUploadStatus(data.error, true);
+      return;
+    }
+
+    const jobId = data.job_id;
+    if (!jobId) {
+      setUploadStatus('Batch upload started, but server did not return a job id.', true);
+      return;
+    }
+
+    setUploadStatus('Batch started. Processing… (job ' + jobId.slice(0, 8) + '…)');
+    let lastDone = -1;
+    const start = Date.now();
+    for (;;) {
+      let stRes;
+      try {
+        stRes = await fetch(getBatchStatusUrl(jobId));
+      } catch (e) {
+        setUploadStatus('Network error while polling: ' + e.message, true);
+        return;
+      }
+      let st;
+      try {
+        st = await stRes.json();
+      } catch (_) {
+        setUploadStatus('Polling failed (' + stRes.status + ').', true);
+        return;
+      }
+      if (!stRes.ok || !st || !st.ok || !st.job) {
+        setUploadStatus((st && st.error) || ('Polling failed (' + stRes.status + ').'), true);
+        return;
+      }
+      const job = st.job;
+      const done = Number(job.count_done) || 0;
+      const total = Number(job.count_total) || list.length;
+      if (done !== lastDone) {
+        lastDone = done;
+        renderBatchResults(job.results || []);
+        setUploadStatus('Processing… ' + done + '/' + total + ' complete.');
+        const okOne = (job.results || []).find(r => r && r.ok && r.pipeline_ok && r.stem);
+        if (okOne && okOne.stem && done === 1) {
+          // no-op; we’ll auto-load when finished (avoids jumping around while batch runs)
+        }
+      }
+      if (job.status === 'done') {
+        renderBatchResults(job.results || []);
+        const okOne = (job.results || []).find(r => r && r.ok && r.pipeline_ok && r.stem);
+        if (okOne && okOne.stem) {
+          setUploadStatus('Batch complete. Loading first successful run: ' + okOne.stem);
+          const stemInput = $('stem-input');
+          if (stemInput) stemInput.value = okOne.stem;
+          await loadFromStem(okOne.stem);
+        } else {
+          setUploadStatus('Batch complete. No successful runs.', true);
+        }
+        return;
+      }
+      if (Date.now() - start > 1000 * 60 * 30) {
+        setUploadStatus('Batch is taking too long; stopping polling after 30 minutes.', true);
+        return;
+      }
+      await new Promise(r => setTimeout(r, 1200));
+    }
   }
 
   function getStemFromQuery() {
@@ -975,31 +1122,57 @@
     }
 
     const imageFileInput = $('image-file-input');
+    const imageFolderInput = $('image-folder-input');
     const chooseImageBtn = $('choose-image-btn');
+    const chooseFolderBtn = $('choose-folder-btn');
     const uploadImageBtn = $('upload-image-btn');
     const imageFileLabel = $('image-file-label');
 
     function syncUploadButtonState() {
-      const has = imageFileInput && imageFileInput.files && imageFileInput.files.length > 0;
+      const hasFiles = imageFileInput && imageFileInput.files && imageFileInput.files.length > 0;
+      const hasFolder = imageFolderInput && imageFolderInput.files && imageFolderInput.files.length > 0;
+      const has = hasFiles || hasFolder;
       if (uploadImageBtn) uploadImageBtn.disabled = !has;
     }
 
     if (chooseImageBtn && imageFileInput) {
       chooseImageBtn.addEventListener('click', () => imageFileInput.click());
     }
+    if (chooseFolderBtn && imageFolderInput) {
+      chooseFolderBtn.addEventListener('click', () => imageFolderInput.click());
+    }
     if (imageFileInput) {
       imageFileInput.addEventListener('change', () => {
-        const f = imageFileInput.files && imageFileInput.files[0];
-        if (imageFileLabel) imageFileLabel.textContent = f ? f.name : 'No file selected';
+        if (imageFolderInput) imageFolderInput.value = '';
+        const n = imageFileInput.files ? imageFileInput.files.length : 0;
+        if (imageFileLabel) imageFileLabel.textContent = n ? (n === 1 ? imageFileInput.files[0].name : (n + ' files selected')) : 'No files selected';
         syncUploadButtonState();
-        if (f) setUploadStatus('');
+        clearBatchResults();
+        if (n) setUploadStatus('');
+      });
+    }
+    if (imageFolderInput) {
+      imageFolderInput.addEventListener('change', () => {
+        if (imageFileInput) imageFileInput.value = '';
+        const n = imageFolderInput.files ? imageFolderInput.files.length : 0;
+        if (imageFileLabel) imageFileLabel.textContent = n ? (n + ' files in folder') : 'No files selected';
+        syncUploadButtonState();
+        clearBatchResults();
+        if (n) setUploadStatus('');
       });
     }
     if (uploadImageBtn && imageFileInput) {
       uploadImageBtn.disabled = true;
       uploadImageBtn.addEventListener('click', () => {
-        const f = imageFileInput.files && imageFileInput.files[0];
-        if (f) uploadImageFile(f);
+        const filesA = imageFileInput && imageFileInput.files ? Array.from(imageFileInput.files) : [];
+        const filesB = imageFolderInput && imageFolderInput.files ? Array.from(imageFolderInput.files) : [];
+        const files = filesA.length ? filesA : filesB;
+        if (!files.length) return;
+        if (files.length === 1) {
+          uploadImageFile(files[0]);
+        } else {
+          uploadImageFiles(files);
+        }
       });
     }
 
